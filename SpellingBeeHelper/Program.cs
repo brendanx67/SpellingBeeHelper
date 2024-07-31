@@ -1,20 +1,43 @@
-﻿// See https://aka.ms/new-console-template for more information
-using SpellingBeeHelper;
-using System.Runtime.CompilerServices;
+﻿namespace SpellingBeeHelper;
 
 internal class Program
 {
     // Possible dictionaries to search
-    private static string dictionaryDir = @"C:\Users\brend\source\repos\SpellingBeeHelper\SpellingBeeHelper";
-    private static string dictionaryPath = Path.Combine(dictionaryDir, "usa2.txt");    // small
-    private static string seenPath = Path.Combine(dictionaryDir, "seen.txt");    // seen but not in dictionaries
-    private static string notWordsPath = Path.Combine(dictionaryDir, "notwords.txt");    // seen but not in dictionaries
-    private static string dictionaryLargePath = Path.Combine(dictionaryDir, "en_US-large.txt"); // medium
-    private static string dictionaryHugePath = Path.Combine(dictionaryDir, "words_alpha.txt"); // large
-    private static string dictionaryScrabblePath = Path.Combine(dictionaryDir, "scrabble-dictionary.txt"); // large
-    private static string dictionaryWebstersPath = Path.Combine(dictionaryDir, "WebstersEnglishDictionary.txt");
+    private const string DictionaryDir = @"C:\Users\brend\source\repos\SpellingBeeHelper\SpellingBeeHelper";
+    private static readonly string DictionaryPath = Path.Combine(DictionaryDir, "usa2.txt");    // small
+    private static readonly string SeenPath = Path.Combine(DictionaryDir, "seen.txt");    // seen but not in dictionaries
+    private static readonly string NotWordsPath = Path.Combine(DictionaryDir, "notwords.txt");    // seen but not in dictionaries
+    private static readonly string DictionaryLargePath = Path.Combine(DictionaryDir, "en_US-large.txt"); // medium
+    private static readonly string DictionaryHugePath = Path.Combine(DictionaryDir, "words_alpha.txt"); // large
+    private static readonly string DictionaryScrabblePath = Path.Combine(DictionaryDir, "scrabble-dictionary.txt"); // large
+    private static readonly string DictionaryWebstersPath = Path.Combine(DictionaryDir, "WebstersEnglishDictionary.txt");
 
-    private static void Main(string[] args)
+    public static void Main(string[] args)
+    {
+        do
+        {
+            PlayGame();
+        }
+        while (Again());
+    }
+
+    private static bool Again()
+    {
+        string response;
+        do
+        {
+            Console.Write("Play Again (Y/N)? ");
+            string? inputChars = Console.ReadLine();
+            response = inputChars != null ? inputChars.Trim().ToUpper() : string.Empty;
+            if (Equals(response, "Y"))
+                return true;
+        }
+        while (!Equals(response, "N"));
+
+        return false;
+    }
+
+    private static void PlayGame()
     {
         // Ask for the set of letters allowed
         string? beeChars = null;
@@ -30,22 +53,20 @@ internal class Program
         }
 
         // Find base set of words usually achieving "genius" level
-        var trie = new Trie(dictionaryPath, seenPath);
-        var anagrams = trie.FindBeeWords(beeChars);
-        Console.WriteLine();
-        var notWords = File.ReadLines(notWordsPath);
-        ShowChoices(notWordsPath, anagrams.Except(notWords).ToArray());
+        ShowBaseWords(beeChars, out var anagrams, out var notWords);
 
         // Find larger set with more misses, adding found words to seen.txt
-        var trieLarge = new Trie(dictionaryLargePath);
+        var trieLarge = new Trie(DictionaryLargePath);
         var anagramsLarge = trieLarge.FindBeeWords(beeChars);
         var anagramsDiff = anagramsLarge.Except(anagrams).Except(notWords).ToArray();
-        ShowChoices(seenPath, anagramsDiff, notWordsPath);
+        ShowChoices(SeenPath, anagramsDiff, NotWordsPath);
+
+        ShowBaseWords(beeChars, out anagrams, out notWords);
 
         // Search HUGE set of words by start character and length
         // adding found words to seen.txt
-        var trieHuge = new Trie(dictionaryHugePath,
-            dictionaryLargePath, dictionaryPath, dictionaryScrabblePath, dictionaryWebstersPath);
+        var trieHuge = new Trie(DictionaryHugePath,
+            DictionaryLargePath, DictionaryPath, DictionaryScrabblePath, DictionaryWebstersPath);
         char? searchLetter;
         int? searchLength;
         for (; ;)
@@ -60,8 +81,10 @@ internal class Program
                 .Except(notWords)
                 // .Except(new[] { anagrams, anagramsLarge}.SelectMany(a => a)) - missing words
                 .ToArray();
-            ShowChoices(seenPath, anagramsHuge);
+            ShowChoices(SeenPath, anagramsHuge);
         }
+
+        ShowBaseWords(beeChars, out _, out _);
 
         static char? GetSearchLetter()
         {
@@ -96,34 +119,64 @@ internal class Program
         }
     }
 
-    private static void ShowChoices(string seenPath, string[] anagrams, string notPath = null)
+    private static void ShowBaseWords(string beeChars, out IList<string> anagrams, out IList<string> notWords)
     {
-        int line = 1;
-        foreach (var anagram in anagrams)
+        for (; ; )
         {
-            Console.Write(line++ + ". ");
-            Console.WriteLine(anagram);
+            var trie = new Trie(DictionaryPath, SeenPath);
+            anagrams = trie.FindBeeWords(beeChars);
+            Console.WriteLine();
+            notWords = File.ReadLines(NotWordsPath).ToArray();
+            if (!ShowChoices(NotWordsPath, anagrams.Except(notWords).ToArray(), null, beeChars))
+                break;
         }
+    }
+
+    private static bool ShowChoices(string seenPath, string[] anagrams, string? notPath = null, string? letters = null)
+    {
+        int score = 0;
+        int limit = anagrams.Length/2;
+        if (anagrams.Length % 2 == 1)
+            limit++;
+        for (int i = 0; i < limit; i++)
+        {
+            string anagram = anagrams[i];
+            Console.Write(GetNumberText(i) + anagram);
+            score += GetScore(anagram, letters);
+            if (i + limit < anagrams.Length)
+            {
+                Console.Write("                           ".Substring(anagram.Length));
+                anagram = anagrams[i + limit];
+                Console.Write(GetNumberText(i + limit) + anagram);
+                score += GetScore(anagram, letters);
+            }
+            Console.WriteLine();
+        }
+        if (letters != null)
+            Console.WriteLine("Score: " + score);
+
         for (; ;)
         {
             Console.Write("Seen (comma separated)? ");
             var seenWords = Console.ReadLine();
             if (string.IsNullOrEmpty(seenWords))
             {
-                WriteNotSeenWords(notPath, anagrams, []);
-                return;
+                return WriteNotSeenWords(notPath, anagrams, Array.Empty<int>());
             }
 
             using var seenWriter = new StreamWriter(seenPath, true);
             try
             {
+                bool seenWritten = false;
+
                 var seenWordIndexes = seenWords.Split(',').Select(w => int.Parse(w.Trim()) - 1).ToArray();
                 foreach (var i in seenWordIndexes)
                 {
                     seenWriter.WriteLine(anagrams[i]);
+                    seenWritten = true;
                 }
-                WriteNotSeenWords(notPath, anagrams, seenWordIndexes);
-                return;
+                bool notseenWritten = WriteNotSeenWords(notPath, anagrams, seenWordIndexes);
+                return seenWritten || notseenWritten;
             }
             catch (Exception ex)
             {
@@ -132,16 +185,40 @@ internal class Program
         }
     }
 
-    private static void WriteNotSeenWords(string notPath, string[] anagrams, int[] seenWordIndexes)
+    private static string GetNumberText(int i)
     {
+        int lineNum = i + 1;
+        var lineText = lineNum.ToString();
+        if (lineText.Length == 1)
+            lineText = " " + lineText;
+        return lineText + ". ";
+    }
+
+    private static int GetScore(string anagram, string? letters)
+    {
+        if (anagram.Length < 5)
+            return 1;
+        int score = anagram.Length;
+        if (letters != null && letters.All(anagram.Contains))
+            score += 7;
+        return score;
+    }
+
+    private static bool WriteNotSeenWords(string? notPath, string[] anagrams, int[] seenWordIndexes)
+    {
+        bool wordsWritten = false;
         if (notPath != null)
         {
             using var notWriter = new StreamWriter(notPath, true);
             for (int i = 0; i < anagrams.Length; i++)
             {
                 if (!seenWordIndexes.Contains(i))
+                {
+                    wordsWritten = true;
                     notWriter.WriteLine(anagrams[i]);
+                }
             }
         }
+        return wordsWritten;
     }
 }
